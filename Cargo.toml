@@ -1,0 +1,14 @@
+[package]
+name = "guildsync"
+version = "0.1.0"
+edition = "2024"
+publish = false
+license = "MIT"
+description = "Rust CLI scaffold for synchronizing Discord guild dumps with terminal workflows; documents Kubernetes and SSH orchestration."
+
+[dependencies]
+clap = { version = "4.5.27", features = ["derive"] }
+serde = { version = "1.0.217", features = ["derive"] }
+serde_json = "1.0.138"
+thiserror = "2.0.11"
+tokio = { version = "1.43.0", features = ["rt-multi-thread", "macros"] }
