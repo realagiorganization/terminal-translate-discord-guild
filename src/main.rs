@@ -2,6 +2,7 @@ use std::path::PathBuf;
 
 use clap::{Parser, Subcommand, ValueEnum};
 use serde::Serialize;
+use thiserror::Error;
 
 #[derive(Parser, Debug)]
 #[command(
@@ -196,11 +197,43 @@ struct JsonOut<'a> {
     message: &'a str,
 }
 
-fn main() {
-    let cli = Cli::parse();
+#[derive(Debug, Error)]
+enum CliError {
+    #[error("scaffold only; not implemented")]
+    NotImplemented,
+    #[error("failed to read input file: {0}")]
+    Io(#[from] std::io::Error),
+    #[error("failed to parse JSON: {0}")]
+    Json(#[from] serde_json::Error),
+    #[error("input must be a JSON object")]
+    NotObject,
+    #[error("format mismatch: expected {expected}, found {found}")]
+    FormatMismatch { expected: String, found: String },
+    #[error("unrecognized format value: {0}")]
+    UnknownFormat(String),
+    #[error("format must be a string when provided")]
+    FormatNotString,
+    #[error("version must be an unsigned integer when provided")]
+    InvalidVersionType,
+}
 
-    // Note: this is a scaffold. All commands intentionally return "not implemented".
-    let action = match &cli.command {
+struct ValidationSummary {
+    format: Option<String>,
+    version: Option<u64>,
+    format_declared: bool,
+}
+
+impl GuildFormat {
+    fn as_str(&self) -> &'static str {
+        match self {
+            GuildFormat::Dump => "dump",
+            GuildFormat::Upload => "upload",
+        }
+    }
+}
+
+fn action_for(command: &Command) -> &'static str {
+    match command {
         Command::Discord { command } => match command {
             DiscordCommand::Export { .. } => "discord.export",
             DiscordCommand::Import { .. } => "discord.import",
@@ -227,23 +260,124 @@ fn main() {
         Command::Ssh { command } => match command {
             SshCommand::Exec { .. } => "ssh.exec",
         },
-    };
+    }
+}
 
-    if cli.json {
-        let out = JsonOut {
-            ok: false,
-            action,
-            message: "scaffold only; not implemented",
-        };
-        println!(
-            "{}",
-            serde_json::to_string_pretty(&out).unwrap_or_else(|_| "{\"ok\":false}".to_string())
-        );
-        return;
+fn validate_format(path: &PathBuf, expected: Option<GuildFormat>) -> Result<ValidationSummary, CliError> {
+    let contents = std::fs::read_to_string(path)?;
+    let value: serde_json::Value = serde_json::from_str(&contents)?;
+    let object = value.as_object().ok_or(CliError::NotObject)?;
+
+    let mut format = None;
+    let mut format_declared = false;
+    if let Some(format_value) = object.get("format") {
+        format_declared = true;
+        let format_str = format_value.as_str().ok_or(CliError::FormatNotString)?;
+        match format_str {
+            "dump" | "upload" => {
+                format = Some(format_str.to_string());
+            }
+            other => return Err(CliError::UnknownFormat(other.to_string())),
+        }
     }
 
-    eprintln!("{action}: scaffold only; not implemented");
-    eprintln!("config: {:?}", cli.config);
-    eprintln!("log: {:?}", cli.log);
-    std::process::exit(2);
+    if let Some(expected_format) = expected {
+        if let Some(found) = format.as_deref() {
+            if found != expected_format.as_str() {
+                return Err(CliError::FormatMismatch {
+                    expected: expected_format.as_str().to_string(),
+                    found: found.to_string(),
+                });
+            }
+        }
+    }
+
+    let mut version = None;
+    if let Some(version_value) = object.get("version") {
+        let version_num = version_value.as_u64().ok_or(CliError::InvalidVersionType)?;
+        version = Some(version_num);
+    }
+
+    Ok(ValidationSummary {
+        format,
+        version,
+        format_declared,
+    })
+}
+
+fn main() {
+    let cli = Cli::parse();
+    let action = action_for(&cli.command);
+
+    let result = match &cli.command {
+        Command::Format { command } => match command {
+            FormatCommand::Validate { r#in, format } => {
+                validate_format(r#in, *format).map(|summary| {
+                    let mut details = Vec::new();
+                    if let Some(expected) = format {
+                        details.push(format!("expected={}", expected.as_str()));
+                        if !summary.format_declared {
+                            details.push("format=missing".to_string());
+                        }
+                    }
+                    if let Some(found) = summary.format {
+                        details.push(format!("format={found}"));
+                    }
+                    if let Some(version) = summary.version {
+                        details.push(format!("version={version}"));
+                    }
+                    if details.is_empty() {
+                        "valid JSON input".to_string()
+                    } else {
+                        format!("valid JSON input ({})", details.join(", "))
+                    }
+                })
+            }
+        },
+        _ => Err(CliError::NotImplemented),
+    };
+
+    match result {
+        Ok(message) => {
+            if cli.json {
+                let out = JsonOut {
+                    ok: true,
+                    action,
+                    message: &message,
+                };
+                println!(
+                    "{}",
+                    serde_json::to_string_pretty(&out)
+                        .unwrap_or_else(|_| "{\"ok\":true}".to_string())
+                );
+            } else {
+                println!("{action}: {message}");
+            }
+        }
+        Err(err) => {
+            let exit_code = match err {
+                CliError::NotImplemented => 2,
+                _ => 1,
+            };
+            if cli.json {
+                let out = JsonOut {
+                    ok: false,
+                    action,
+                    message: &err.to_string(),
+                };
+                println!(
+                    "{}",
+                    serde_json::to_string_pretty(&out)
+                        .unwrap_or_else(|_| "{\"ok\":false}".to_string())
+                );
+            } else {
+                eprintln!("{action}: {err}");
+                if matches!(err, CliError::NotImplemented) {
+                    eprintln!("config: {:?}", cli.config);
+                    eprintln!("log: {:?}", cli.log);
+                }
+            }
+            std::process::exit(exit_code);
+        }
+    }
 }
