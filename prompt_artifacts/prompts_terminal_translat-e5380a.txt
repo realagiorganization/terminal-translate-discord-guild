@@ -1,0 +1,4 @@
+Prompt ID: prompts_terminal_translat-e5380a-p00005-37d70b\nTimestamp: 2026-02-03T14:21:18.687146Z\nSource: discord\nQueue: d06fa85e0ef24ab9bbc6b9cd7f300352::prompt_queue::discord_1353735964635435100_1353735964635435100_1468242086032838716_realagicorp_prompts_terminal_translate_discord_guild_1468242086032838716_json\nRun: 1/1\nContent:\nDiscord channel: prompts_terminal_translate_discord_guild\nChannel ID: 1468242086032838716\nQueue label: prompts_terminal_translat-e5380a\nMessages aggregated: 1\n\nDiscord channel: prompts_terminal_translate_discord_guild | ID: 1468242086032838716 | Reaction filter: :white_check_mark:
+
+Messages with required reaction:
+[1] (2026-02-03T13:50:29.954+00:00 | realagiadmin_29264 | id=1468242245521117319) repository_hint https://github.com/realagiorganization/terminal-translate-discord-guild\n
